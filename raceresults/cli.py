@@ -130,7 +130,7 @@ def cmd_scrape_all(args: argparse.Namespace) -> None:
     conn = store.connect(args.db)
     existing_slugs = {row["slug"] for row in store.list_races(conn)} if not args.force else set()
 
-    ok = skipped = failed = 0
+    ok = skipped = failed = empty = 0
     for race in races:
         if race.slug in existing_slugs:
             print(f"[skip] {race.slug} (already stored, use --force to re-scrape)")
@@ -152,6 +152,10 @@ def cmd_scrape_all(args: argparse.Namespace) -> None:
                 parsed = parse_race(fetched.xml_text, slug=race.slug, source_url=race.url)
                 if fetched.title_hint:
                     parsed.name = fetched.title_hint
+            if not parsed.runners:
+                print(f"[empty] {race.slug} — '{parsed.name}': 0 runners, not stored")
+                empty += 1
+                continue
             store.save_race(conn, parsed)
             finished = sum(1 for r in parsed.runners if r.status == "finished")
             print(f"[ok]   {race.slug} — '{parsed.name}': {len(parsed.runners)} runners, {finished} finished")
@@ -160,7 +164,10 @@ def cmd_scrape_all(args: argparse.Namespace) -> None:
             print(f"[fail] {race.slug}: {exc}")
             failed += 1
 
-    print(f"\nDone: {ok} scraped, {skipped} skipped, {failed} failed (of {len(races)} discovered).")
+    print(
+        f"\nDone: {ok} scraped, {skipped} skipped, {empty} empty (not stored), "
+        f"{failed} failed (of {len(races)} discovered)."
+    )
 
 
 def cmd_scrape_livetrail(args: argparse.Namespace) -> None:
@@ -176,7 +183,7 @@ def cmd_scrape_livetrail(args: argparse.Namespace) -> None:
     conn = store.connect(args.db)
     existing_slugs = {row["slug"] for row in store.list_races(conn)} if not args.force else set()
 
-    ok = skipped = failed = 0
+    ok = skipped = failed = empty = 0
     for edition in editions:
         if edition.slug in existing_slugs:
             print(f"[skip] {edition.slug} (already stored, use --force to re-scrape)")
@@ -185,6 +192,10 @@ def cmd_scrape_livetrail(args: argparse.Namespace) -> None:
         try:
             event_slug = edition.slug.removeprefix("livetrail-")
             parsed = scrape_livetrail_race(event_slug)
+            if not parsed.runners:
+                print(f"[empty] {edition.slug} — '{parsed.name}': 0 runners, not stored")
+                empty += 1
+                continue
             store.save_race(conn, parsed)
             finished = sum(1 for r in parsed.runners if r.status == "finished")
             print(f"[ok]   {edition.slug} — '{parsed.name}': {len(parsed.runners)} runners, {finished} finished")
@@ -193,7 +204,10 @@ def cmd_scrape_livetrail(args: argparse.Namespace) -> None:
             print(f"[fail] {edition.slug}: {exc}")
             failed += 1
 
-    print(f"\nDone: {ok} scraped, {skipped} skipped, {failed} failed (of {len(editions)} editions found).")
+    print(
+        f"\nDone: {ok} scraped, {skipped} skipped, {empty} empty (not stored), "
+        f"{failed} failed (of {len(editions)} editions found)."
+    )
 
 
 def cmd_list_races(args: argparse.Namespace) -> None:

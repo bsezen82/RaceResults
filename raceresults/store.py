@@ -244,14 +244,21 @@ def search_runners(
     year: Optional[str] = None,
     limit: int = 25,
 ) -> List[sqlite3.Row]:
-    """Find runners by (accent/case-insensitive) name substring.
+    """Find runners by (accent/case-insensitive) name, word-order-independent.
+
+    The query is split into words and every word must appear somewhere in
+    the stored name - not just as one exact substring - so "Ad Soyad" also
+    matches a runner stored as "Soyad Ad" (some providers give names in
+    surname-first order).
 
     With no race_slug/year, searches across every stored race. `year` (e.g.
     "2025") narrows to races whose date falls in that year; ignored if
     race_slug is given.
     """
     conn.row_factory = sqlite3.Row
-    normalized_query = normalize_name(query)
+    tokens = normalize_name(query).split()
+    if not tokens:
+        return []
     sql = """
         SELECT runners.*, races.slug AS race_slug, races.name AS race_name,
                races.date AS race_date, courses.distance_m AS course_distance_m,
@@ -261,9 +268,8 @@ def search_runners(
         FROM runners
         JOIN races ON races.id = runners.race_id
         LEFT JOIN courses ON courses.race_id = runners.race_id AND courses.code = runners.course_code
-        WHERE runners.name_normalized LIKE ?
-    """
-    params: list = [f"%{normalized_query}%"]
+        WHERE """ + " AND ".join(["runners.name_normalized LIKE ?"] * len(tokens))
+    params: list = [f"%{token}%" for token in tokens]
     if race_slug:
         sql += " AND races.slug = ?"
         params.append(race_slug)
