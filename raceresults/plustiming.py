@@ -23,6 +23,7 @@ provider-agnostic.
 """
 from __future__ import annotations
 
+import functools
 import re
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
@@ -36,11 +37,16 @@ from .models import Checkpoint, Course, Race, Runner, Split
 
 BASE_URL = "https://sonuc.plustiming.com/"
 DEFAULT_CID = 16389
+_LISTING_PAGE_SIZE = 20
 
 _RACE_CARD_RE = re.compile(r'<div class="race-card-border.*?</div>\s*</div>\s*</div>', re.DOTALL)
 _CARD_RID_RE = re.compile(r"RId=(\d+)")
 _CARD_NAME_RE = re.compile(r'RId=\d+">\s*([^<]*\S[^<]*)</a>')
 _CARD_DATE_RE = re.compile(r"<span>([^<]+)</span>")
+# Only the "ALL RACE RESULTS" pager's links carry a From=/To= pair (the
+# per-race links use RId=, not From/To), so this is safe to search for
+# across the whole page rather than scoping to one container.
+_PAGER_RANGE_RE = re.compile(r"From=(\d+)&(?:amp;)?To=(\d+)")
 _EVENTS_UL_RE = re.compile(r'<ul id="[^"]*divEvents"[^>]*>(.*?)</ul>', re.DOTALL)
 _EVENT_LINK_RE = re.compile(r"EId=(\d+)\"[^>]*>([^<]+)</a>")
 _PAGER_RE = re.compile(r"Page \d+ of (\d+)")
@@ -104,44 +110,75 @@ def _fetch(url: str, timeout: int = 30) -> str:
     return resp.text
 
 
-def discover_plustiming_races(cid: int = DEFAULT_CID, timeout: int = 30) -> List[DiscoveredRace]:
-    """Fetch the sonuc.plustiming.com homepage ("All Races") and list every event."""
-    html = _fetch(BASE_URL, timeout=timeout)
-    races = []
-    seen = set()
+def _parse_card_date(date_text: Optional[str]) -> Optional[str]:
+    if not date_text:
+        return None
+    for fmt in ("%d %B %Y", "%d %b %Y"):
+        try:
+            return datetime.strptime(date_text, fmt).date().isoformat()
+        except ValueError:
+            continue
+    return None
+
+
+def _ingest_cards(html: str, cards_by_rid: Dict[str, Dict[str, Optional[str]]]) -> None:
     for card in _RACE_CARD_RE.findall(html):
         rid_match = _CARD_RID_RE.search(card)
         if not rid_match:
             continue
         rid = rid_match.group(1)
-        if rid in seen:
+        if rid in cards_by_rid:
             continue
-        seen.add(rid)
+        name_match = _CARD_NAME_RE.search(card)
+        date_match = _CARD_DATE_RE.search(card)
+        name = name_match.group(1).strip() if name_match else None
+        date_text = date_match.group(1).strip() if date_match else None
+        cards_by_rid[rid] = {"name": name, "date": _parse_card_date(date_text)}
+
+
+@functools.lru_cache(maxsize=8)
+def _all_race_cards(cid: int) -> Dict[str, Dict[str, Optional[str]]]:
+    """Fetch every page of the site's paginated "ALL RACE RESULTS" listing
+    (StartPage.aspx?From=&To=, 20 races/page) and return {rid: {name, date}}
+    for every race found - not just the homepage's small "recent races"
+    excerpt, which is all discover_plustiming_races used to look at.
+
+    Cached per CId for the life of the process: scraping many races in one
+    run would otherwise re-fetch all ~10+ listing pages once per race just
+    to look up its name/date.
+    """
+    cards_by_rid: Dict[str, Dict[str, Optional[str]]] = {}
+
+    first_html = _fetch(
+        urljoin(BASE_URL, f"StartPage.aspx?CId={cid}&From=1&To={_LISTING_PAGE_SIZE}")
+    )
+    _ingest_cards(first_html, cards_by_rid)
+
+    range_pairs = _PAGER_RANGE_RE.findall(first_html)
+    total_races = max((int(to) for _from, to in range_pairs), default=_LISTING_PAGE_SIZE)
+    total_pages = (total_races + _LISTING_PAGE_SIZE - 1) // _LISTING_PAGE_SIZE
+
+    for page in range(2, total_pages + 1):
+        from_n = (page - 1) * _LISTING_PAGE_SIZE + 1
+        to_n = page * _LISTING_PAGE_SIZE
+        html = _fetch(urljoin(BASE_URL, f"StartPage.aspx?CId={cid}&From={from_n}&To={to_n}"))
+        _ingest_cards(html, cards_by_rid)
+
+    return cards_by_rid
+
+
+def discover_plustiming_races(cid: int = DEFAULT_CID, timeout: int = 30) -> List[DiscoveredRace]:
+    """List every event in the site's paginated "ALL RACE RESULTS" listing."""
+    races = []
+    for rid in _all_race_cards(cid):
         url = urljoin(BASE_URL, f"results.aspx?CId={cid}&RId={rid}")
         races.append(DiscoveredRace(url=url, slug=f"plustiming-{rid}", provider="plustiming"))
     return races
 
 
 def _race_card_meta(cid: int, rid: str, timeout: int) -> Dict[str, Optional[str]]:
-    """Pull this one race's name+date from the homepage's race-card list."""
-    html = _fetch(BASE_URL, timeout=timeout)
-    for card in _RACE_CARD_RE.findall(html):
-        if f"RId={rid}" not in card:
-            continue
-        name_match = _CARD_NAME_RE.search(card)
-        date_match = _CARD_DATE_RE.search(card)
-        name = name_match.group(1).strip() if name_match else None
-        date_text = date_match.group(1).strip() if date_match else None
-        iso_date = None
-        if date_text:
-            for fmt in ("%d %B %Y", "%d %b %Y"):
-                try:
-                    iso_date = datetime.strptime(date_text, fmt).date().isoformat()
-                    break
-                except ValueError:
-                    continue
-        return {"name": name, "date": iso_date}
-    return {"name": None, "date": None}
+    """Pull this one race's name+date, from the (cached) full listing scan."""
+    return _all_race_cards(cid).get(rid, {"name": None, "date": None})
 
 
 def _fetch_events(cid: int, rid: str, timeout: int) -> List[Tuple[Optional[str], str]]:
