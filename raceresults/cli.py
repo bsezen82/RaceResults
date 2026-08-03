@@ -18,6 +18,8 @@ Examples:
 
     python -m raceresults.cli import-html --slug cadde10k-2026 --name "Cadde 10K&21K" \\
         --date 2026-XX-XX saved_page1.html saved_page2.html
+
+    python -m raceresults.cli scrape-livetrail --slug utcappadocia
 """
 from __future__ import annotations
 
@@ -34,6 +36,7 @@ from . import store
 from .discover import discover_races
 from .fetch import fetch_clax
 from .hurratiming import scrape_hurratiming_race
+from .livetrail import discover_livetrail_editions, scrape_livetrail_race
 from .parse import parse_race
 from .plustiming import DEFAULT_CID as PLUSTIMING_DEFAULT_CID
 from .plustiming import build_race_from_local_html, scrape_plustiming_race
@@ -158,6 +161,39 @@ def cmd_scrape_all(args: argparse.Namespace) -> None:
             failed += 1
 
     print(f"\nDone: {ok} scraped, {skipped} skipped, {failed} failed (of {len(races)} discovered).")
+
+
+def cmd_scrape_livetrail(args: argparse.Namespace) -> None:
+    """LiveTrail hosts many international races under one big platform, so
+    unlike the other providers there's no sensible "discover everything" -
+    this targets every edition of one named event (e.g. utcappadocia),
+    found by probing /histo/{slug}_{year}/ across a year range."""
+    editions = discover_livetrail_editions(args.slug, year_range=range(args.from_year, args.to_year + 1))
+    if not editions:
+        print(f"No editions of '{args.slug}' found on livetrail.net for {args.from_year}-{args.to_year}.")
+        return
+
+    conn = store.connect(args.db)
+    existing_slugs = {row["slug"] for row in store.list_races(conn)} if not args.force else set()
+
+    ok = skipped = failed = 0
+    for edition in editions:
+        if edition.slug in existing_slugs:
+            print(f"[skip] {edition.slug} (already stored, use --force to re-scrape)")
+            skipped += 1
+            continue
+        try:
+            event_slug = edition.slug.removeprefix("livetrail-")
+            parsed = scrape_livetrail_race(event_slug)
+            store.save_race(conn, parsed)
+            finished = sum(1 for r in parsed.runners if r.status == "finished")
+            print(f"[ok]   {edition.slug} — '{parsed.name}': {len(parsed.runners)} runners, {finished} finished")
+            ok += 1
+        except Exception as exc:  # noqa: BLE001 - keep going, report at the end
+            print(f"[fail] {edition.slug}: {exc}")
+            failed += 1
+
+    print(f"\nDone: {ok} scraped, {skipped} skipped, {failed} failed (of {len(editions)} editions found).")
 
 
 def cmd_list_races(args: argparse.Namespace) -> None:
@@ -288,6 +324,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_scrape_all.add_argument("--force", action="store_true", help="Re-scrape races already stored")
     p_scrape_all.set_defaults(func=cmd_scrape_all)
+
+    p_scrape_livetrail = sub.add_parser(
+        "scrape-livetrail",
+        help="Scrape every edition of one named LiveTrail event (e.g. utcappadocia) across a year range",
+    )
+    p_scrape_livetrail.add_argument("--slug", required=True, help="Base event slug, e.g. utcappadocia")
+    p_scrape_livetrail.add_argument("--from-year", type=int, default=2010)
+    p_scrape_livetrail.add_argument("--to-year", type=int, default=2026)
+    p_scrape_livetrail.add_argument("--force", action="store_true", help="Re-scrape editions already stored")
+    p_scrape_livetrail.set_defaults(func=cmd_scrape_livetrail)
 
     p_export_json = sub.add_parser("export-json", help="Export a full race to one JSON file")
     p_export_json.add_argument("slug")
