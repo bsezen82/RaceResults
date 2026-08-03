@@ -4,7 +4,7 @@ app ("pick a race, type a name, see the result") will run against.
 from __future__ import annotations
 
 import sqlite3
-from typing import List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from .models import Race
 
@@ -278,3 +278,58 @@ def list_races(conn: sqlite3.Connection) -> List[sqlite3.Row]:
         "SELECT races.*, (SELECT COUNT(*) FROM runners WHERE runners.race_id = races.id) AS runner_count "
         "FROM races ORDER BY date DESC"
     ).fetchall()
+
+
+def yearly_stats(conn: sqlite3.Connection) -> Tuple[List[Dict], Dict]:
+    """Per-year rollup for the summary table: races, race-distance
+    combinations (courses), total results, and unique runners (deduped by
+    normalized name). Returns (year_rows, grand_total_row).
+    """
+    conn.row_factory = sqlite3.Row
+
+    def _by_year(sql: str) -> Dict[str, int]:
+        return {row["year"]: row["n"] for row in conn.execute(sql).fetchall()}
+
+    races_by_year = _by_year(
+        "SELECT substr(date, 1, 4) AS year, COUNT(*) AS n FROM races "
+        "WHERE date IS NOT NULL GROUP BY year"
+    )
+    courses_by_year = _by_year(
+        "SELECT substr(races.date, 1, 4) AS year, COUNT(*) AS n FROM courses "
+        "JOIN races ON races.id = courses.race_id "
+        "WHERE races.date IS NOT NULL GROUP BY year"
+    )
+    results_by_year = _by_year(
+        "SELECT substr(races.date, 1, 4) AS year, COUNT(*) AS n FROM runners "
+        "JOIN races ON races.id = runners.race_id "
+        "WHERE races.date IS NOT NULL GROUP BY year"
+    )
+    unique_by_year = _by_year(
+        "SELECT substr(races.date, 1, 4) AS year, COUNT(DISTINCT runners.name_normalized) AS n "
+        "FROM runners JOIN races ON races.id = runners.race_id "
+        "WHERE races.date IS NOT NULL GROUP BY year"
+    )
+
+    years = sorted(races_by_year, reverse=True)
+    year_rows = [
+        {
+            "year": year,
+            "races": races_by_year.get(year, 0),
+            "courses": courses_by_year.get(year, 0),
+            "results": results_by_year.get(year, 0),
+            "unique_runners": unique_by_year.get(year, 0),
+        }
+        for year in years
+    ]
+
+    total_row = {
+        "year": "Toplam",
+        "races": conn.execute("SELECT COUNT(*) FROM races").fetchone()[0],
+        "courses": conn.execute("SELECT COUNT(*) FROM courses").fetchone()[0],
+        "results": conn.execute("SELECT COUNT(*) FROM runners").fetchone()[0],
+        "unique_runners": conn.execute(
+            "SELECT COUNT(DISTINCT name_normalized) FROM runners"
+        ).fetchone()[0],
+    }
+
+    return year_rows, total_row

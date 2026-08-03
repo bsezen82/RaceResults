@@ -29,6 +29,34 @@ conn = get_connection()
 st.title("🏁 RaceResults")
 st.caption("İstersen yıl ve yarış seç, ad-soyad yaz, sonucunu gör.")
 
+
+@st.cache_data(show_spinner=False)
+def _yearly_stats():
+    year_rows, total_row = store.yearly_stats(conn)
+    return year_rows, total_row
+
+
+_year_rows, _total_row = _yearly_stats()
+
+if _year_rows:
+    _summary_columns = {
+        "year": "Yıl",
+        "races": "Yarış",
+        "courses": "Yarış-Mesafe Kombinasyonu",
+        "results": "Toplam Sonuç",
+        "unique_runners": "Tekil Koşucu",
+    }
+    _summary_rows = [
+        {label: row[key] for key, label in _summary_columns.items()} for row in _year_rows
+    ]
+    _summary_rows.append({label: _total_row[key] for key, label in _summary_columns.items()})
+    st.dataframe(
+        _summary_rows,
+        hide_index=True,
+        width="stretch",
+        height=35 * (len(_summary_rows) + 1) + 3,
+    )
+
 TILE_COLORS = {
     "race": ("#E3F2FD", "#0D47A1"),
     "date": ("#E0F7FA", "#00838F"),
