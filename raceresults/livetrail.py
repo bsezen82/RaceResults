@@ -85,6 +85,25 @@ def discover_livetrail_editions(
     return races
 
 
+_TRAILING_DISTANCE_TOKEN_RE = re.compile(r"\s+[A-Za-z]*\d[A-Za-z0-9]*$")
+
+
+def _strip_course_suffix(title: str, course_id: str) -> str:
+    """Strip a trailing course label from a course title, e.g.
+    "Salomon Cappadocia Ultra-Trail® CUT" -> "Salomon Cappadocia Ultra-Trail®".
+
+    The course id doesn't always appear verbatim as that suffix (some
+    editions use id "CUT110K" while the title only ends in "110K"), so if
+    an exact-id strip doesn't change anything, fall back to stripping any
+    trailing token that contains a digit (distance labels like "110K",
+    "60K" always do; genuine race-name words never do).
+    """
+    stripped = re.sub(r"\s*" + re.escape(course_id) + r"$", "", title).strip()
+    if stripped != title:
+        return stripped
+    return _TRAILING_DISTANCE_TOKEN_RE.sub("", title).strip()
+
+
 def _home_page_data(event_slug: str, timeout: int) -> tuple:
     """Return (race_name, race_date_iso, [(course_id, course_title, distance_m), ...])."""
     resp = requests.get(_base_url(event_slug), headers={"User-Agent": USER_AGENT}, timeout=timeout)
@@ -102,7 +121,7 @@ def _home_page_data(event_slug: str, timeout: int) -> tuple:
     race_name = None
     if courses:
         first_id, first_title, _ = courses[0]
-        race_name = re.sub(r"\s*" + re.escape(first_id) + r"$", "", first_title).strip()
+        race_name = _strip_course_suffix(first_title, first_id)
 
     return race_name, race_date, courses
 
