@@ -4,6 +4,7 @@ app ("pick a race, type a name, see the result") will run against.
 from __future__ import annotations
 
 import sqlite3
+import unicodedata
 from typing import Dict, List, Optional, Tuple
 
 from .models import Race
@@ -113,8 +114,17 @@ _TURKISH_FOLD = str.maketrans(
 
 
 def normalize_name(name: str) -> str:
-    """Fold Turkish characters and case so name search is accent/case-insensitive."""
+    """Fold case, Turkish characters, and any other Latin diacritics (é, ñ,
+    ...) so name search/dedup is accent- and case-insensitive regardless of
+    whether a name came from a Turkish or foreign-language source.
+
+    The Turkish-specific table runs first because "ı" (dotless i) has no
+    Unicode decomposition to fold generically - everything else (ö, ü, ç,
+    ğ, ş, and non-Turkish letters like é or ñ) does, via NFKD + stripping
+    combining marks.
+    """
     folded = name.translate(_TURKISH_FOLD).lower()
+    folded = "".join(ch for ch in unicodedata.normalize("NFKD", folded) if not unicodedata.combining(ch))
     return " ".join(folded.replace("\xa0", " ").split())
 
 
