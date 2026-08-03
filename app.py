@@ -4,58 +4,22 @@
     streamlit run app.py
 """
 
-import os
 from datetime import date
 
 import streamlit as st
 
 from raceresults import store
 from raceresults.timeutils import format_seconds
+from webapp_common import get_connection
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "data", "raceresults.db")
 ALL_YEARS = "Tüm yıllar"
 
 st.set_page_config(page_title="RaceResults", page_icon="🏁", layout="wide")
 
-
-@st.cache_resource
-def get_connection():
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    return store.connect(DB_PATH)
-
-
 conn = get_connection()
 
 st.title("🏁 RaceResults")
-st.caption("İstersen yıl ve yarış seç, ad-soyad yaz, sonucunu gör.")
-
-
-@st.cache_data(show_spinner=False)
-def _yearly_stats():
-    year_rows, total_row = store.yearly_stats(conn)
-    return year_rows, total_row
-
-
-_year_rows, _total_row = _yearly_stats()
-
-if _year_rows:
-    _summary_columns = {
-        "year": "Yıl",
-        "races": "Yarış",
-        "courses": "Yarış-Mesafe Kombinasyonu",
-        "results": "Toplam Sonuç",
-        "unique_runners": "Tekil Koşucu",
-    }
-    _summary_rows = [
-        {label: row[key] for key, label in _summary_columns.items()} for row in _year_rows
-    ]
-    _summary_rows.append({label: _total_row[key] for key, label in _summary_columns.items()})
-    st.dataframe(
-        _summary_rows,
-        hide_index=True,
-        width="stretch",
-        height=35 * (len(_summary_rows) + 1) + 3,
-    )
+st.caption("İstersen yıl ve yarış seç, ad-soyad yaz, sonucunu gör. Toplanan veri özeti için soldaki **Özet** sayfasına bak.")
 
 TILE_COLORS = {
     "race": ("#E3F2FD", "#0D47A1"),

@@ -343,3 +343,33 @@ def yearly_stats(conn: sqlite3.Connection) -> Tuple[List[Dict], Dict]:
     }
 
     return year_rows, total_row
+
+
+def top_runners_by_race_count(conn: sqlite3.Connection, limit: int = 10) -> List[sqlite3.Row]:
+    """Runners who've appeared in the most distinct races (any status - a
+    DNF still means they ran that race), deduped by normalized name.
+
+    Excludes a handful of providers' generic placeholder names for entrants
+    who opted out of public display (e.g. "***** UNKNOWN COMPETITOR"),
+    which would otherwise collapse many different anonymous people into one
+    fake "runner" and dominate the leaderboard.
+    """
+    conn.row_factory = sqlite3.Row
+    return conn.execute(
+        "SELECT name_normalized, MIN(name) AS name, COUNT(DISTINCT race_id) AS race_count "
+        "FROM runners WHERE name NOT LIKE '%UNKNOWN%' "
+        "GROUP BY name_normalized ORDER BY race_count DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+
+
+def top_races_by_participants(conn: sqlite3.Connection, limit: int = 10) -> List[sqlite3.Row]:
+    """The single race editions with the most total participants, summed
+    across all of that edition's distances (courses)."""
+    conn.row_factory = sqlite3.Row
+    return conn.execute(
+        "SELECT races.name, races.date, races.slug, "
+        "(SELECT COUNT(*) FROM runners WHERE runners.race_id = races.id) AS runner_count "
+        "FROM races ORDER BY runner_count DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
