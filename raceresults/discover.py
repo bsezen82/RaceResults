@@ -30,6 +30,7 @@ from .fetch import USER_AGENT
 
 ARGEUS_HOMEPAGE_URL = "https://argeustiming.com/"
 PASSTIMING_ARCHIVE_URL = "https://www.passtiming.org/yarisma-sonuclari"
+MERBE_LISTING_URL = "https://merbespor.com/event-listing-1/"
 
 _ARGEUS_LINK_RE = re.compile(
     r'href="(https://argeustiming\.com/results/g-live/g-live\.html\?f=[^"]+)"'
@@ -44,6 +45,7 @@ _PASSTIMING_NAV_SLUGS = {
     "yarisma-sonuclari",
     "yarisma-takvimi",
 }
+_MERBE_EVENT_LINK_RE = re.compile(r'href="https://merbespor\.com/event/([a-z0-9-]+)/"')
 
 
 @dataclass
@@ -104,8 +106,47 @@ def discover_passtiming_races(archive_url: str = PASSTIMING_ARCHIVE_URL, timeout
     return races
 
 
+def discover_merbe_races(
+    listing_url: str = MERBE_LISTING_URL, timeout: int = 20, max_pages: int = 30
+) -> List[DiscoveredRace]:
+    """Discover MerBe Timing (merbespor.com) races: another self-hosted G-Live
+    instance. The marketing site paginates its /event/{slug}/ pages under
+    /event-listing-1/[page/N/]; each event that has published results links
+    to /results/{slug}/, a small wrapper page embedding the g-live viewer in
+    an <iframe> (same shape fetch.fetch_clax already follows for PassTiming).
+    Events without results yet (upcoming races) don't have a working
+    /results/ page, so each candidate is probed and silently skipped if it
+    doesn't actually embed a g-live viewer.
+    """
+    seen_slugs = set()
+    page = 1
+    while page <= max_pages:
+        url = listing_url if page == 1 else urljoin(listing_url, f"page/{page}/")
+        resp = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=timeout)
+        if resp.status_code != 200:
+            break
+        slugs = set(_MERBE_EVENT_LINK_RE.findall(resp.text))
+        if not (slugs - seen_slugs) and page > 1:
+            break
+        seen_slugs |= slugs
+        if f"page/{page + 1}/" not in resp.text:
+            break
+        page += 1
+
+    races = []
+    for slug in sorted(seen_slugs):
+        results_url = urljoin("https://merbespor.com/results/", f"{slug}/")
+        try:
+            resp = requests.get(results_url, headers={"User-Agent": USER_AGENT}, timeout=timeout)
+        except requests.RequestException:
+            continue
+        if resp.status_code == 200 and "g-live.html" in resp.text:
+            races.append(DiscoveredRace(url=results_url, slug=f"merbe-{slug}", provider="merbe"))
+    return races
+
+
 def discover_races(
-    providers: tuple = ("argeus", "passtiming", "plustiming", "hurratiming")
+    providers: tuple = ("argeus", "passtiming", "plustiming", "hurratiming", "merbe")
 ) -> List[DiscoveredRace]:
     """Discover events across all (or a subset of) known timing providers."""
     races: List[DiscoveredRace] = []
@@ -121,4 +162,6 @@ def discover_races(
         from .hurratiming import discover_hurratiming_races  # local import: avoids a cycle
 
         races.extend(discover_hurratiming_races())
+    if "merbe" in providers:
+        races.extend(discover_merbe_races())
     return races
