@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+.DS_Store
+.streamlit/secrets.toml
+exports/
+data/_to_delete/
