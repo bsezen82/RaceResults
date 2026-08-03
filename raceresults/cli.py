@@ -25,6 +25,7 @@ import argparse
 import csv
 import json
 import os
+import re
 import sys
 from collections import defaultdict
 from urllib.parse import parse_qs, urlparse
@@ -32,6 +33,7 @@ from urllib.parse import parse_qs, urlparse
 from . import store
 from .discover import discover_races
 from .fetch import fetch_clax
+from .hurratiming import scrape_hurratiming_race
 from .parse import parse_race
 from .plustiming import DEFAULT_CID as PLUSTIMING_DEFAULT_CID
 from .plustiming import build_race_from_local_html, scrape_plustiming_race
@@ -50,6 +52,12 @@ def cmd_scrape(args: argparse.Namespace) -> None:
             raise SystemExit(f"No RId= parameter found in PlusTiming URL: {args.url}")
         cid = int(qs.get("CId", [PLUSTIMING_DEFAULT_CID])[0])
         race = scrape_plustiming_race(rid, cid=cid)
+        race.slug = args.slug
+    elif "hurratiming.com" in parsed_url.netloc:
+        match = re.search(r"/event/(\d+)", parsed_url.path)
+        if not match:
+            raise SystemExit(f"No /event/<id> path found in HurraTiming URL: {args.url}")
+        race = scrape_hurratiming_race(match.group(1))
         race.slug = args.slug
     else:
         fetched = fetch_clax(args.url)
@@ -105,7 +113,7 @@ def cmd_search(args: argparse.Namespace) -> None:
 
 def cmd_discover(args: argparse.Namespace) -> None:
     races = discover_races()
-    print(f"Found {len(races)} events across known timing providers (argeus, passtiming, plustiming):")
+    print(f"Found {len(races)} events across known timing providers (argeus, passtiming, plustiming, hurratiming):")
     for race in races:
         print(f"[{race.provider}]\t{race.slug}\t{race.url}")
 
@@ -131,6 +139,10 @@ def cmd_scrape_all(args: argparse.Namespace) -> None:
                 rid = qs["RId"][0]
                 cid = int(qs.get("CId", [PLUSTIMING_DEFAULT_CID])[0])
                 parsed = scrape_plustiming_race(rid, cid=cid)
+                parsed.slug = race.slug
+            elif race.provider == "hurratiming":
+                event_id = re.search(r"/event/(\d+)", urlparse(race.url).path).group(1)
+                parsed = scrape_hurratiming_race(event_id)
                 parsed.slug = race.slug
             else:
                 fetched = fetch_clax(race.url)

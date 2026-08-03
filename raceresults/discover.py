@@ -104,7 +104,9 @@ def discover_passtiming_races(archive_url: str = PASSTIMING_ARCHIVE_URL, timeout
     return races
 
 
-def discover_races(providers: tuple = ("argeus", "passtiming", "plustiming")) -> List[DiscoveredRace]:
+def discover_races(
+    providers: tuple = ("argeus", "passtiming", "plustiming", "hurratiming")
+) -> List[DiscoveredRace]:
     """Discover events across all (or a subset of) known timing providers."""
     races: List[DiscoveredRace] = []
     if "argeus" in providers:
@@ -115,4 +117,8 @@ def discover_races(providers: tuple = ("argeus", "passtiming", "plustiming")) ->
         from .plustiming import discover_plustiming_races  # local import: avoids a cycle
 
         races.extend(discover_plustiming_races())
+    if "hurratiming" in providers:
+        from .hurratiming import discover_hurratiming_races  # local import: avoids a cycle
+
+        races.extend(discover_hurratiming_races())
     return races
