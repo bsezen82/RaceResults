@@ -85,10 +85,14 @@ if not name_query:
     st.stop()
 
 if selected_slug:
-    results = store.search_runners(conn, name_query, race_slug=selected_slug, limit=50)
+    results = store.search_runners(
+        conn, name_query, race_slug=selected_slug, status="finished", limit=200
+    )
 else:
     year_filter = None if year_choice == ALL_YEARS else year_choice
-    results = store.search_runners(conn, name_query, year=year_filter, limit=50)
+    results = store.search_runners(
+        conn, name_query, year=year_filter, status="finished", limit=200
+    )
 
     def _days_from_today(race_date: str | None) -> float:
         if not race_date:
@@ -99,8 +103,6 @@ else:
             return float("inf")
 
     results = sorted(results, key=lambda row: _days_from_today(row["race_date"]))
-
-results = [row for row in results if row["status"] == "finished"]
 
 if not results:
     st.warning("Bu isimle eşleşen bir sonuç bulunamadı.")

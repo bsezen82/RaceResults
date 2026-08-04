@@ -242,6 +242,7 @@ def search_runners(
     query: str,
     race_slug: Optional[str] = None,
     year: Optional[str] = None,
+    status: Optional[str] = None,
     limit: int = 25,
 ) -> List[sqlite3.Row]:
     """Find runners by (accent/case-insensitive) name, word-order-independent.
@@ -253,7 +254,11 @@ def search_runners(
 
     With no race_slug/year, searches across every stored race. `year` (e.g.
     "2025") narrows to races whose date falls in that year; ignored if
-    race_slug is given.
+    race_slug is given. `status` (e.g. "finished") filters in SQL rather
+    than after fetching - callers that only want finished results MUST pass
+    this instead of filtering the return value themselves, otherwise a
+    common name with many DNF/DNS rows can fill up `limit` before any
+    finished ones are counted, silently dropping real results.
     """
     conn.row_factory = sqlite3.Row
     tokens = normalize_name(query).split()
@@ -270,6 +275,9 @@ def search_runners(
         LEFT JOIN courses ON courses.race_id = runners.race_id AND courses.code = runners.course_code
         WHERE """ + " AND ".join(["runners.name_normalized LIKE ?"] * len(tokens))
     params: list = [f"%{token}%" for token in tokens]
+    if status:
+        sql += " AND runners.status = ?"
+        params.append(status)
     if race_slug:
         sql += " AND races.slug = ?"
         params.append(race_slug)
