@@ -40,6 +40,7 @@ from .livetrail import discover_livetrail_editions, scrape_livetrail_race
 from .parse import parse_race
 from .plustiming import DEFAULT_CID as PLUSTIMING_DEFAULT_CID
 from .plustiming import build_race_from_local_html, scrape_plustiming_race
+from .splittime import scrape_splittime_race
 from .timeutils import format_seconds
 
 DEFAULT_DB = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "raceresults.db")
@@ -88,6 +89,23 @@ def cmd_import_html(args: argparse.Namespace) -> None:
     print(
         f"Saved '{race.name}' ({args.slug}) from {len(args.files)} local file(s): "
         f"{len(race.runners)} runners, {finished} finished, {len(race.courses)} courses -> {args.db}"
+    )
+
+
+def cmd_scrape_splittime(args: argparse.Namespace) -> None:
+    """results.splittime.nl exposes no listing and no race name/date on the
+    results page itself (only an opaque EventID), so unlike every other
+    provider here these must be supplied by hand."""
+    race = scrape_splittime_race(args.event_id, name=args.name, date=args.date)
+    race.slug = args.slug or race.slug
+
+    conn = store.connect(args.db)
+    store.save_race(conn, race)
+
+    finished = sum(1 for r in race.runners if r.status == "finished")
+    print(
+        f"Saved '{race.name}' ({race.slug}): {len(race.runners)} runners, "
+        f"{finished} finished, {len(race.courses)} courses -> {args.db}"
     )
 
 
@@ -348,6 +366,16 @@ def build_parser() -> argparse.ArgumentParser:
     p_scrape_livetrail.add_argument("--to-year", type=int, default=2026)
     p_scrape_livetrail.add_argument("--force", action="store_true", help="Re-scrape editions already stored")
     p_scrape_livetrail.set_defaults(func=cmd_scrape_livetrail)
+
+    p_scrape_splittime = sub.add_parser(
+        "scrape-splittime",
+        help="Scrape a race from results.splittime.nl (EventID-only, no listing/name/date available on the site)",
+    )
+    p_scrape_splittime.add_argument("event_id", help="Numeric EventID from the site's URL, e.g. 8840")
+    p_scrape_splittime.add_argument("--name", required=True, help="Race display name (site doesn't expose this)")
+    p_scrape_splittime.add_argument("--date", help="Race date, ISO format e.g. 2026-04-19")
+    p_scrape_splittime.add_argument("--slug", help="Short unique id; defaults to splittime-<EventID>")
+    p_scrape_splittime.set_defaults(func=cmd_scrape_splittime)
 
     p_export_json = sub.add_parser("export-json", help="Export a full race to one JSON file")
     p_export_json.add_argument("slug")
