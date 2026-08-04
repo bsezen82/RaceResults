@@ -55,7 +55,7 @@ _ROW_RE = re.compile(r"<tr.*?</tr>", re.DOTALL)
 _CELL_RE = re.compile(r"<td[^>]*>(.*?)</td>", re.DOTALL)
 _TAG_RE = re.compile(r"<[^>]+>")
 _CLOCK_RE = re.compile(r"^(\d{1,2}):(\d{2}):(\d{2})$")
-_DISTANCE_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*[kK]")
+_DISTANCE_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*[kK](?![a-zA-Z])")
 
 # Known fixed-role columns; anything else in the header is a checkpoint,
 # in left-to-right (chronological) order. "Name" appears twice (a desktop

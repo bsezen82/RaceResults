@@ -30,6 +30,7 @@ net finish time.
 """
 from __future__ import annotations
 
+import re
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -39,6 +40,30 @@ from .models import Category, Checkpoint, Course, Race, Runner, Split
 from .timeutils import parse_gap, parse_pace, parse_time, status_for
 
 _EXCEL_EPOCH = datetime(1899, 12, 30)
+
+_DISTANCE_LABEL_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*[kK](?![a-zA-Z])")
+
+
+def _distance_m_from_label(label: str) -> Optional[int]:
+    match = _DISTANCE_LABEL_RE.search(label)
+    if not match:
+        return None
+    return int(float(match.group(1).replace(",", ".")) * 1000)
+
+
+def _sanity_checked_distance(raw_distance_m: int, label: str) -> int:
+    """Some providers mistype the distance attribute in their source XML (e.g. an
+    extra digit). When the course's own name embeds a distance that's wildly off
+    from the parsed attribute (more than 2x either way), trust the name instead -
+    real course-vs-GPS variance is never that large.
+    """
+    label_guess = _distance_m_from_label(label)
+    if not label_guess or raw_distance_m <= 0:
+        return raw_distance_m
+    ratio = raw_distance_m / label_guess
+    if ratio > 2 or ratio < 0.5:
+        return label_guess
+    return raw_distance_m
 
 
 def _race_date(epreuve: Dict[str, str]) -> Optional[str]:
@@ -81,14 +106,18 @@ def _clean_name(name: str) -> str:
 
 
 def _parse_courses(root: ET.Element) -> List[Course]:
-    return [
-        Course(
-            code=pcs.attrib["nom"],
-            distance_m=_to_int(pcs.attrib.get("distance")) or 0,
-            color=pcs.attrib.get("clh"),
+    courses = []
+    for pcs in root.findall("./Parcours/Pcs"):
+        code = pcs.attrib["nom"]
+        raw_distance_m = _to_int(pcs.attrib.get("distance")) or 0
+        courses.append(
+            Course(
+                code=code,
+                distance_m=_sanity_checked_distance(raw_distance_m, code),
+                color=pcs.attrib.get("clh"),
+            )
         )
-        for pcs in root.findall("./Parcours/Pcs")
-    ]
+    return courses
 
 
 def _parse_categories(root: ET.Element) -> List[Category]:
