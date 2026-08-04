@@ -1,4 +1,4 @@
-"""RaceResults: toplanan verinin özeti - yıl yıl kırılım, en çok yarışan
+"""RaceResults: toplanan verinin analizleri - yıl yıl kırılım, en çok yarışan
 sporcular, en kalabalık yarışlar.
 """
 import streamlit as st
@@ -6,11 +6,9 @@ import streamlit as st
 from raceresults import store
 from webapp_common import get_connection
 
-st.set_page_config(page_title="RaceResults — Özet", page_icon="📊", layout="wide")
-
 conn = get_connection()
 
-st.title("📊 Özet")
+st.title("📊 Analizler")
 st.caption("Toplanan verinin genel görünümü.")
 
 
