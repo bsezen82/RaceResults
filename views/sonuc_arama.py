@@ -108,13 +108,18 @@ if not results:
     st.warning("Bu isimle eşleşen bir sonuç bulunamadı.")
     st.stop()
 
-# --- Sonuçların özeti: kaç yarış, toplam/en uzun mesafe, en uzun süre ---
+# --- Sonuçların özeti: kaç yarış, toplam/en uzun mesafe, en uzun süre, en iyi sıralamalar ---
 distances_km = [row["course_distance_m"] / 1000 for row in results if row["course_distance_m"]]
 total_km = sum(distances_km)
 longest_km = max(distances_km) if distances_km else None
 longest_seconds = max(row["finish_seconds"] for row in results if row["finish_seconds"])
 
-summary_row = _tile_row(
+course_ranks = [row for row in results if row["rank_course"]]
+best_course_row = min(course_ranks, key=lambda row: row["rank_course"]) if course_ranks else None
+category_ranks = [row for row in results if row["rank_category"]]
+best_category_row = min(category_ranks, key=lambda row: row["rank_category"]) if category_ranks else None
+
+summary_row1 = _tile_row(
     [
         _tile("Koştuğu Yarış Sayısı", str(len(results)), None, "race"),
         _tile("Toplam Mesafe", f"{total_km:.1f} km" if distances_km else "-", "mesafesi bilinenler", "distance"),
@@ -122,7 +127,24 @@ summary_row = _tile_row(
         _tile("En Uzun Süre", format_seconds(longest_seconds), None, "time"),
     ]
 )
-st.markdown(summary_row, unsafe_allow_html=True)
+summary_row2 = _tile_row(
+    [
+        _tile(
+            "En İyi Genel Sıra",
+            f"{best_course_row['rank_course']}." if best_course_row else "-",
+            best_course_row["race_name"] if best_course_row else None,
+            "overall",
+        ),
+        _tile(
+            "En İyi Kategori Sırası",
+            f"{best_category_row['rank_category']}." if best_category_row else "-",
+            best_category_row["category"] if best_category_row else None,
+            "category",
+        ),
+    ]
+)
+st.markdown(summary_row1, unsafe_allow_html=True)
+st.markdown(summary_row2, unsafe_allow_html=True)
 
 for row in results:
     time_str = format_seconds(row["finish_seconds"])

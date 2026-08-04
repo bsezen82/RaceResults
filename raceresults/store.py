@@ -359,9 +359,13 @@ def yearly_stats(conn: sqlite3.Connection) -> Tuple[List[Dict], Dict]:
     return year_rows, total_row
 
 
-def top_runners_by_race_count(conn: sqlite3.Connection, limit: int = 10) -> List[sqlite3.Row]:
-    """Runners who've appeared in the most distinct races (any status - a
-    DNF still means they ran that race), deduped by normalized name.
+def top_runners_by_race_count(
+    conn: sqlite3.Connection, limit: int = 10, status: Optional[str] = "finished"
+) -> List[sqlite3.Row]:
+    """Runners who've appeared in the most distinct races, deduped by
+    normalized name. `status="finished"` (the default) only counts races
+    they actually finished; pass None to count any participation (DNF/DNS
+    included).
 
     Excludes a handful of providers' generic placeholder names for entrants
     who opted out of public display (e.g. "***** UNKNOWN COMPETITOR"),
@@ -369,12 +373,41 @@ def top_runners_by_race_count(conn: sqlite3.Connection, limit: int = 10) -> List
     fake "runner" and dominate the leaderboard.
     """
     conn.row_factory = sqlite3.Row
-    return conn.execute(
+    sql = (
         "SELECT name_normalized, MIN(name) AS name, COUNT(DISTINCT race_id) AS race_count "
-        "FROM runners WHERE name NOT LIKE '%UNKNOWN%' "
-        "GROUP BY name_normalized ORDER BY race_count DESC LIMIT ?",
-        (limit,),
-    ).fetchall()
+        "FROM runners WHERE name NOT LIKE '%UNKNOWN%'"
+    )
+    params: list = []
+    if status:
+        sql += " AND status = ?"
+        params.append(status)
+    sql += " GROUP BY name_normalized ORDER BY race_count DESC LIMIT ?"
+    params.append(limit)
+    return conn.execute(sql, params).fetchall()
+
+
+def top_runners_by_distance(
+    conn: sqlite3.Connection, limit: int = 10, status: Optional[str] = "finished"
+) -> List[sqlite3.Row]:
+    """Runners with the most total distance across their races (only races
+    where the course's distance is known are counted), deduped by
+    normalized name.
+    """
+    conn.row_factory = sqlite3.Row
+    sql = (
+        "SELECT runners.name_normalized, MIN(runners.name) AS name, "
+        "SUM(courses.distance_m) AS total_distance_m "
+        "FROM runners "
+        "JOIN courses ON courses.race_id = runners.race_id AND courses.code = runners.course_code "
+        "WHERE runners.name NOT LIKE '%UNKNOWN%' AND courses.distance_m > 0"
+    )
+    params: list = []
+    if status:
+        sql += " AND runners.status = ?"
+        params.append(status)
+    sql += " GROUP BY runners.name_normalized ORDER BY total_distance_m DESC LIMIT ?"
+    params.append(limit)
+    return conn.execute(sql, params).fetchall()
 
 
 def top_races_by_participants(conn: sqlite3.Connection, limit: int = 10) -> List[sqlite3.Row]:
@@ -385,5 +418,21 @@ def top_races_by_participants(conn: sqlite3.Connection, limit: int = 10) -> List
         "SELECT races.name, races.date, races.slug, "
         "(SELECT COUNT(*) FROM runners WHERE runners.race_id = races.id) AS runner_count "
         "FROM races ORDER BY runner_count DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+
+
+def top_race_courses_by_participants(conn: sqlite3.Connection, limit: int = 10) -> List[sqlite3.Row]:
+    """The single race+distance combinations (e.g. "İstanbul Maratonu 2025 -
+    42K") with the most participants - unlike top_races_by_participants,
+    this doesn't sum a race edition's distances together.
+    """
+    conn.row_factory = sqlite3.Row
+    return conn.execute(
+        "SELECT races.name AS race_name, races.date, runners.course_code, "
+        "COUNT(*) AS participant_count "
+        "FROM runners JOIN races ON races.id = runners.race_id "
+        "GROUP BY runners.race_id, runners.course_code "
+        "ORDER BY participant_count DESC LIMIT ?",
         (limit,),
     ).fetchall()

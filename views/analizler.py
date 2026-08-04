@@ -18,13 +18,28 @@ def _yearly_stats():
 
 
 @st.cache_data(show_spinner=False)
-def _top_runners():
-    return [dict(r) for r in store.top_runners_by_race_count(conn, limit=10)]
+def _top_runners_by_race_count():
+    return [dict(r) for r in store.top_runners_by_race_count(conn, limit=20, status="finished")]
+
+
+@st.cache_data(show_spinner=False)
+def _top_runners_by_distance():
+    return [dict(r) for r in store.top_runners_by_distance(conn, limit=20, status="finished")]
 
 
 @st.cache_data(show_spinner=False)
 def _top_races():
-    return [dict(r) for r in store.top_races_by_participants(conn, limit=10)]
+    return [dict(r) for r in store.top_races_by_participants(conn, limit=20)]
+
+
+@st.cache_data(show_spinner=False)
+def _top_race_courses():
+    return [dict(r) for r in store.top_race_courses_by_participants(conn, limit=20)]
+
+
+def _table(rows, height_rows=None):
+    n = height_rows if height_rows is not None else len(rows)
+    st.dataframe(rows, hide_index=True, width="stretch", height=35 * (n + 1) + 3)
 
 
 year_rows, total_row = _yearly_stats()
@@ -40,50 +55,66 @@ if year_rows:
     }
     summary_rows = [{label: row[key] for key, label in columns.items()} for row in year_rows]
     summary_rows.append({label: total_row[key] for key, label in columns.items()})
-    st.dataframe(
-        summary_rows,
-        hide_index=True,
-        width="stretch",
-        height=35 * (len(summary_rows) + 1) + 3,
-    )
+    _table(summary_rows)
 else:
     st.info("Henüz kayıtlı veri yok.")
 
 col1, col2 = st.columns(2)
 
 with col1:
-    st.subheader("En çok yarışan 10 sporcu")
-    top_runners = _top_runners()
-    if top_runners:
-        st.dataframe(
-            [
-                {"Ad Soyad": r["name"], "Koştuğu Yarış Sayısı": r["race_count"]}
-                for r in top_runners
-            ],
-            hide_index=True,
-            width="stretch",
-            height=35 * (len(top_runners) + 1) + 3,
-        )
+    st.subheader("En çok yarış koşan 20 sporcu")
+    st.caption("Bitirdiği yarış sayısına göre.")
+    rows = _top_runners_by_race_count()
+    if rows:
+        _table([{"Ad Soyad": r["name"], "Bitirdiği Yarış Sayısı": r["race_count"]} for r in rows])
     else:
         st.info("Henüz kayıtlı veri yok.")
 
 with col2:
-    st.subheader("En kalabalık 10 yarış")
+    st.subheader("En çok km koşan 20 sporcu")
+    st.caption("Bitirdiği, mesafesi bilinen yarışların toplamına göre.")
+    rows = _top_runners_by_distance()
+    if rows:
+        _table(
+            [
+                {"Ad Soyad": r["name"], "Toplam Mesafe (km)": round(r["total_distance_m"] / 1000, 1)}
+                for r in rows
+            ]
+        )
+    else:
+        st.info("Henüz kayıtlı veri yok.")
+
+col3, col4 = st.columns(2)
+
+with col3:
+    st.subheader("En kalabalık 20 yarış")
     st.caption("Mesafe bağımsız - o yarışın (edisyonun) toplam katılımcı sayısı.")
-    top_races = _top_races()
-    if top_races:
-        st.dataframe(
+    rows = _top_races()
+    if rows:
+        _table(
+            [
+                {"Yarış": r["name"], "Tarih": r["date"] or "-", "Katılımcı": r["runner_count"]}
+                for r in rows
+            ]
+        )
+    else:
+        st.info("Henüz kayıtlı veri yok.")
+
+with col4:
+    st.subheader("En kalabalık 20 yarış/mesafe")
+    st.caption("Tek bir mesafe/parkur bazında (örn. bir maratonun 42K'sı ayrı, 10K'sı ayrı sayılır).")
+    rows = _top_race_courses()
+    if rows:
+        _table(
             [
                 {
-                    "Yarış": r["name"],
+                    "Yarış": r["race_name"],
+                    "Mesafe": r["course_code"] or "-",
                     "Tarih": r["date"] or "-",
-                    "Katılımcı": r["runner_count"],
+                    "Katılımcı": r["participant_count"],
                 }
-                for r in top_races
-            ],
-            hide_index=True,
-            width="stretch",
-            height=35 * (len(top_races) + 1) + 3,
+                for r in rows
+            ]
         )
     else:
         st.info("Henüz kayıtlı veri yok.")
