@@ -109,22 +109,36 @@ if not results:
     st.stop()
 
 # --- Sonuçların özeti: kaç yarış, toplam/en uzun mesafe, en uzun süre, en iyi sıralamalar ---
-distances_km = [row["course_distance_m"] / 1000 for row in results if row["course_distance_m"]]
-total_km = sum(distances_km)
-longest_km = max(distances_km) if distances_km else None
-longest_seconds = max(row["finish_seconds"] for row in results if row["finish_seconds"])
+def _race_year_sub(row) -> str | None:
+    if not row:
+        return None
+    year = row["race_date"][:4] if row["race_date"] else None
+    return f"{row['race_name']} ({year})" if year else row["race_name"]
+
+
+distance_rows = [row for row in results if row["course_distance_m"]]
+total_km = sum(row["course_distance_m"] / 1000 for row in distance_rows)
+longest_row = max(distance_rows, key=lambda row: row["course_distance_m"]) if distance_rows else None
+longest_time_row = max(results, key=lambda row: row["finish_seconds"] or 0)
 
 course_ranks = [row for row in results if row["rank_course"]]
 best_course_row = min(course_ranks, key=lambda row: row["rank_course"]) if course_ranks else None
+gender_ranks = [row for row in results if row["rank_gender"]]
+best_gender_row = min(gender_ranks, key=lambda row: row["rank_gender"]) if gender_ranks else None
 category_ranks = [row for row in results if row["rank_category"]]
 best_category_row = min(category_ranks, key=lambda row: row["rank_category"]) if category_ranks else None
 
 summary_row1 = _tile_row(
     [
         _tile("Koştuğu Yarış Sayısı", str(len(results)), None, "race"),
-        _tile("Toplam Mesafe", f"{total_km:.1f} km" if distances_km else "-", "mesafesi bilinenler", "distance"),
-        _tile("En Uzun Mesafe", f"{longest_km:.1f} km" if longest_km else "-", None, "participants"),
-        _tile("En Uzun Süre", format_seconds(longest_seconds), None, "time"),
+        _tile("Toplam Mesafe", f"{total_km:.1f} km" if distance_rows else "-", "mesafesi bilinenler", "distance"),
+        _tile(
+            "En Uzun Mesafe",
+            f"{longest_row['course_distance_m'] / 1000:.1f} km" if longest_row else "-",
+            _race_year_sub(longest_row),
+            "participants",
+        ),
+        _tile("En Uzun Süre", format_seconds(longest_time_row["finish_seconds"]), _race_year_sub(longest_time_row), "time"),
     ]
 )
 summary_row2 = _tile_row(
@@ -132,13 +146,19 @@ summary_row2 = _tile_row(
         _tile(
             "En İyi Genel Sıra",
             f"{best_course_row['rank_course']}." if best_course_row else "-",
-            best_course_row["race_name"] if best_course_row else None,
+            _race_year_sub(best_course_row),
             "overall",
+        ),
+        _tile(
+            "En İyi Cinsiyet Sırası",
+            f"{best_gender_row['rank_gender']}." if best_gender_row else "-",
+            _race_year_sub(best_gender_row),
+            "gender",
         ),
         _tile(
             "En İyi Kategori Sırası",
             f"{best_category_row['rank_category']}." if best_category_row else "-",
-            best_category_row["category"] if best_category_row else None,
+            _race_year_sub(best_category_row),
             "category",
         ),
     ]
